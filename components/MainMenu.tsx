@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { SavedData, Difficulty } from '../types';
 import { CLONING_RATES, FUEL_EFFICIENCY, HULL_CAPACITIES, UPGRADE_COSTS, DIFFICULTY_CONFIG } from '../constants';

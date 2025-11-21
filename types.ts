@@ -1,3 +1,4 @@
+
 export enum GameScreen {
   MENU = 'MENU',
   GAME = 'GAME',
@@ -35,7 +36,8 @@ export enum ObjectType {
   FUEL = 'FUEL',
   REPAIR = 'REPAIR',
   BOOST = 'BOOST',
-  PLANET = 'PLANET'
+  PLANET = 'PLANET',
+  MINERAL = 'MINERAL'
 }
 
 export interface GameObject {
@@ -53,6 +55,7 @@ export interface GameObject {
   label?: string; // For planets
   isDying?: boolean;
   flashTime?: number;
+  miningProgress?: number; // 0 to 1
 }
 
 export interface Particle {

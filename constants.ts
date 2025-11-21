@@ -1,3 +1,4 @@
+
 import { SavedData, Difficulty } from './types';
 
 export const INITIAL_SAVE_DATA: SavedData = {
@@ -13,10 +14,10 @@ export const INITIAL_SAVE_DATA: SavedData = {
 
 // Difficulty Config
 export const DIFFICULTY_CONFIG = {
-  [Difficulty.EASY]: { maxShots: 5, label: "Recruit", color: "text-green-400", desc: "Max Shots: 5" },
-  [Difficulty.MEDIUM]: { maxShots: 3, label: "Veteran", color: "text-blue-400", desc: "Max Shots: 3" },
-  [Difficulty.HARD]: { maxShots: 2, label: "Hardcore", color: "text-orange-400", desc: "Max Shots: 2" },
-  [Difficulty.INSANE]: { maxShots: 1, label: "Psychopath", color: "text-red-600", desc: "Max Shots: 1" }
+  [Difficulty.EASY]: { maxShots: 5, label: "Recruit", color: "text-green-400", desc: "Standard Space Lane" },
+  [Difficulty.MEDIUM]: { maxShots: 3, label: "Veteran", color: "text-blue-400", desc: "Debris Field Warning" },
+  [Difficulty.HARD]: { maxShots: 2, label: "Hardcore", color: "text-orange-400", desc: "Asteroid Storm" },
+  [Difficulty.INSANE]: { maxShots: 1, label: "Psychopath", color: "text-red-600", desc: "Kessler Syndrome" }
 };
 
 // Collector Ability Config
@@ -25,6 +26,34 @@ export const COLLECTOR_CONFIG = {
   [Difficulty.MEDIUM]: { uses: 3, radius: 350, duration: 240, pullSpeed: 0.6 },  // 3 uses, 4s each, 350px range
   [Difficulty.HARD]: { uses: 2, radius: 250, duration: 180, pullSpeed: 0.5 },    // 2 uses, 3s each, 250px range
   [Difficulty.INSANE]: { uses: 1, radius: 180, duration: 120, pullSpeed: 0.4 }   // 1 use, 2s each, 180px range
+};
+
+// Mining Config
+export const MINING_COST = 0.2; // Energy cost per frame
+export const MINERAL_VALUE = 10; // Credits per mineral
+export const MINERAL_ENERGY = 5; // Power restore per mineral
+
+export const MINING_DIFFICULTY_SETTINGS = {
+  [Difficulty.EASY]: {
+    miningSpeed: 0.05,       // Fast mining
+    mineralCount: { min: 6, max: 9 }, // Lots of minerals
+    mineralSpeed: 5.0        // Fast particles
+  },
+  [Difficulty.MEDIUM]: {
+    miningSpeed: 0.025,
+    mineralCount: { min: 4, max: 6 },
+    mineralSpeed: 3.5
+  },
+  [Difficulty.HARD]: {
+    miningSpeed: 0.012,
+    mineralCount: { min: 2, max: 4 },
+    mineralSpeed: 2.0
+  },
+  [Difficulty.INSANE]: {
+    miningSpeed: 0.006,      // Very slow mining
+    mineralCount: { min: 1, max: 2 }, // Few minerals
+    mineralSpeed: 1.0        // Slow particles
+  }
 };
 
 // Upgrade Config

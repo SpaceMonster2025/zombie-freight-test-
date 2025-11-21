@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Battery, Heart, Skull, Zap, AlertTriangle, Magnet } from 'lucide-react';
 
@@ -57,16 +58,16 @@ export const HUD: React.FC<HUDProps> = ({
             <span className="text-xs w-8 text-right font-mono">{Math.floor(hull)}%</span>
           </div>
 
-           {/* Boost */}
+           {/* Power (Boost/Mining) */}
            <div className="flex items-center gap-2">
-            <Zap className={`w-5 h-5 ${boostCharge < 100 ? 'text-yellow-600' : 'text-yellow-400'}`} />
+            <Zap className={`w-5 h-5 ${boostCharge < 20 ? 'text-red-500' : 'text-yellow-400'}`} />
             <div className="flex-1 h-3 bg-gray-800 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-yellow-400 transition-all duration-200"
                 style={{ width: `${Math.min(100, boostCharge)}%` }} 
               />
             </div>
-            <span className="text-xs w-8 text-right font-mono">BST</span>
+            <span className="text-xs w-8 text-right font-mono">PWR</span>
           </div>
         </div>
 
@@ -136,7 +137,7 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Bottom Controls Hint */}
       <div className="text-center opacity-50 text-xs pb-2 font-mono">
-        WASD: THRUST | SHIFT: BOOST | RMB: COLLECTOR ({collectorUses}) | SPACE/LMB: SHOOT
+        WASD: THRUST | SHIFT: BOOST | RMB: COLLECTOR | LMB: MINING RAY (HOLD)
       </div>
     </div>
   );

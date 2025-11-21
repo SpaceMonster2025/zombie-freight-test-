@@ -1,10 +1,12 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { GameObject, GameScreen, ObjectType, SavedData, Difficulty } from '../types';
 import { 
   BOOST_MULTIPLIER, CLONING_RATES, COLLISION_DAMAGE, COLLISION_FUEL_LEAK, 
   FUEL_CONSUMPTION_BASE, FUEL_EFFICIENCY, FUEL_MAX, HULL_CAPACITIES, 
   HULL_MAX, PLANET_NAMES, SCROLL_SPEED_BASE, SCROLL_SPEED_MAX, SHIP_FRICTION, 
-  SHIP_THRUST, DIFFICULTY_CONFIG, COLLECTOR_CONFIG
+  SHIP_THRUST, DIFFICULTY_CONFIG, COLLECTOR_CONFIG, MINING_COST, 
+  MINERAL_VALUE, MINERAL_ENERGY, MINING_DIFFICULTY_SETTINGS
 } from '../constants';
 import { HUD } from './HUD';
 import { Starfield } from './Starfield';
@@ -14,14 +16,6 @@ interface GameCanvasProps {
   difficulty: Difficulty;
   onGameOver: (stats: { zombies: number; credits: number; reason: string }) => void;
   onSuccess: (stats: { zombies: number; credits: number; multiplier: number }) => void;
-}
-
-interface Projectile {
-  id: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
 }
 
 interface DebrisParticle {
@@ -38,7 +32,7 @@ interface DebrisParticle {
 export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, onGameOver, onSuccess }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
-  const mouseRef = useRef<boolean>(false);
+  const mouseRef = useRef<{x: number, y: number, isDown: boolean}>({ x: 0, y: 0, isDown: false });
   const rightMouseRef = useRef<boolean>(false);
   
   // Game State Refs (Mutable for performance)
@@ -54,7 +48,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     cloningRate: CLONING_RATES[saveData.upgrades.cloning - 1],
     fuelEff: FUEL_EFFICIENCY[saveData.upgrades.fuel - 1],
     objects: [] as GameObject[],
-    projectiles: [] as Projectile[],
     particles: [] as DebrisParticle[],
     scrollSpeed: SCROLL_SPEED_BASE,
     distance: 0,
@@ -65,7 +58,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     isLanding: false,
     landingProgress: 0,
     screenShake: 0,
-    lastShotTime: 0,
     // Collector State
     collectorUses: COLLECTOR_CONFIG[difficulty].uses,
     collectorMaxTime: COLLECTOR_CONFIG[difficulty].duration,
@@ -145,7 +137,33 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         rotation: Math.random() * Math.PI,
         rotationSpeed: (Math.random() - 0.5) * 0.1,
         color,
-        value
+        value,
+        miningProgress: 0
+      });
+    }
+  };
+
+  const spawnMinerals = (x: number, y: number) => {
+    const settings = MINING_DIFFICULTY_SETTINGS[difficulty];
+    const count = settings.mineralCount.min + Math.floor(Math.random() * (settings.mineralCount.max - settings.mineralCount.min + 1));
+    
+    for(let i=0; i<count; i++) {
+       const angle = Math.random() * Math.PI * 2;
+       const speed = settings.mineralSpeed + (Math.random() * 0.5); 
+       
+       gameState.current.objects.push({
+        id: Math.random().toString(),
+        type: ObjectType.MINERAL,
+        x: x,
+        y: y,
+        radius: 5,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        rotation: 0,
+        rotationSpeed: 0.1,
+        color: '#FFD700', // Gold
+        value: MINERAL_VALUE,
+        miningProgress: 0
       });
     }
   };
@@ -155,7 +173,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
       const angle = Math.random() * Math.PI * 2;
       const speed = Math.random() * 8 + 2;
       
-      // Distinct colors: White core, Orange/Red fire, Grey debris
       const type = Math.random();
       let pColor = baseColor;
       let pSize = Math.random() * 4 + 1;
@@ -187,7 +204,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     }
   };
 
-  const playSound = (type: 'land' | 'shoot' | 'explode' | 'hit') => {
+  const playSound = (type: 'land' | 'mine' | 'explode' | 'collect') => {
     try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioContextClass) return;
@@ -202,12 +219,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
           gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
           gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 2);
           osc.stop(audioCtx.currentTime + 2.1);
-        } else if (type === 'shoot') {
-          osc.type = 'square';
-          osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.1);
-          gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        } else if (type === 'mine') {
+          // Electric buzzing
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(100 + Math.random() * 50, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+          gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
           osc.stop(audioCtx.currentTime + 0.1);
         } else if (type === 'explode') {
           osc.type = 'sawtooth';
@@ -216,22 +233,64 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
           gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
           gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
           osc.stop(audioCtx.currentTime + 0.4);
-        } else if (type === 'hit') {
-           // High pitch ping for hit registration
-           osc.type = 'triangle';
+        } else if (type === 'collect') {
+           osc.type = 'sine';
            osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
-           osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.05);
+           osc.frequency.exponentialRampToValueAtTime(1800, audioCtx.currentTime + 0.1);
            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-           gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
-           osc.stop(audioCtx.currentTime + 0.05);
+           gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+           osc.stop(audioCtx.currentTime + 0.1);
         }
 
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start();
     } catch(e) {
-      // ignore audio errors
+      // ignore
     }
+  };
+
+  // Lightning Drawing Helper
+  const drawLightning = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) => {
+    ctx.save();
+    ctx.strokeStyle = '#60A5FA'; // Blue-400
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#3B82F6';
+    ctx.shadowBlur = 15;
+    
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const steps = Math.floor(dist / 10);
+    
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    
+    let cx = x1;
+    let cy = y1;
+    
+    for (let i = 0; i < steps; i++) {
+      const t = (i + 1) / steps;
+      const tx = x1 + (x2 - x1) * t;
+      const ty = y1 + (y2 - y1) * t;
+      
+      const jitter = 5;
+      const nx = tx + (Math.random() - 0.5) * jitter;
+      const ny = ty + (Math.random() - 0.5) * jitter;
+      
+      ctx.lineTo(nx, ny);
+      cx = nx;
+      cy = ny;
+    }
+    
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    
+    // Inner White Core
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+    
+    ctx.restore();
   };
 
   useEffect(() => {
@@ -257,7 +316,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     // Input handlers
     const handleKeyDown = (e: KeyboardEvent) => {
       keys.current.add(e.key.toLowerCase());
-      // Planet Interaction
       if (gameState.current.planetNear) {
         if (e.key.toLowerCase() === 'y') {
           landOnPlanet();
@@ -271,7 +329,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 0) { // Left Click
-        mouseRef.current = true;
+        mouseRef.current.isDown = true;
         if (gameState.current.planetNear) landOnPlanet();
       }
       if (e.button === 2) { // Right Click
@@ -280,20 +338,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     };
     
     const handleMouseUp = (e: MouseEvent) => {
-      if (e.button === 0) mouseRef.current = false;
+      if (e.button === 0) mouseRef.current.isDown = false;
       if (e.button === 2) rightMouseRef.current = false;
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+        if (canvas) {
+            const rect = canvas.getBoundingClientRect();
+            mouseRef.current.x = e.clientX - rect.left;
+            mouseRef.current.y = e.clientY - rect.top;
+        }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousemove', handleMouseMove);
 
     // GAME LOOP
     const update = () => {
       const state = gameState.current;
       const now = Date.now();
       const collConfig = COLLECTOR_CONFIG[difficulty];
+      const miningSettings = MINING_DIFFICULTY_SETTINGS[difficulty];
       
       // LANDING SEQUENCE
       if (state.isLanding) {
@@ -382,7 +450,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         state.boostCharge -= 0.5;
         state.scrollSpeed = Math.min(SCROLL_SPEED_MAX * 1.5, state.scrollSpeed + 0.1);
       } else {
-        state.boostCharge = Math.min(100, state.boostCharge + 0.05);
+        // Passive recharge is slow
+        state.boostCharge = Math.min(100, state.boostCharge + 0.02);
         const targetSpeed = SCROLL_SPEED_BASE + (state.distance / 10000);
         state.scrollSpeed = state.scrollSpeed * 0.98 + targetSpeed * 0.02;
       }
@@ -400,23 +469,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
             state.isCollecting = false;
           }
         }
-      }
-
-      // Shooting: Space or Mouse Click (if not landing)
-      const maxShots = DIFFICULTY_CONFIG[difficulty].maxShots;
-      const isShooting = keys.current.has(' ') || (mouseRef.current && !state.planetNear);
-      
-      if (isShooting && now - state.lastShotTime > 250 && state.projectiles.length < maxShots) {
-         state.projectiles.push({
-           id: now,
-           x: state.x,
-           y: state.y - 20,
-           vx: state.vx * 0.5, // Inherit some velocity
-           vy: -12 // Shoot forward/up
-         });
-         state.lastShotTime = now;
-         playSound('shoot');
-         state.vy += 0.5; // Recoil
       }
 
       // Apply Friction
@@ -443,16 +495,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
 
       state.planetNear = null;
       
-      // Update Projectiles
-      for (let i = state.projectiles.length - 1; i >= 0; i--) {
-        const p = state.projectiles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.y < -50 || p.x < 0 || p.x > canvas.width || p.y > canvas.height) {
-          state.projectiles.splice(i, 1);
-        }
-      }
-
       // Update Particles
       for (let i = state.particles.length - 1; i >= 0; i--) {
         const p = state.particles[i];
@@ -468,122 +510,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         if (state.screenShake < 0.5) state.screenShake = 0;
       }
 
-      // Object Physics & Collision - Iterate backwards for safe removal
-      for (let i = state.objects.length - 1; i >= 0; i--) {
-        const obj = state.objects[i];
-
-        // Handle Dying State (Flash before destruction)
-        if (obj.isDying) {
-            obj.flashTime = (obj.flashTime || 0) - 1;
-            
-            // Keep moving slightly while dying
-            obj.y += state.scrollSpeed * (state.isBoosting ? BOOST_MULTIPLIER : 1);
-
-            if (obj.flashTime <= 0) {
-                // Final Destruction
-                createExplosionParticles(obj.x, obj.y, obj.color, Math.floor(obj.radius * 0.8));
-                
-                // Screen Shake based on asteroid size
-                const shakeAmount = obj.radius > 35 ? 20 : 5;
-                state.screenShake = Math.max(state.screenShake, shakeAmount);
-                
-                playSound('explode');
-                state.objects.splice(i, 1);
-            }
-            continue; // Skip further collision checks for dying objects
-        }
-
-        // Normal Physics
-        const speedMult = state.isBoosting ? BOOST_MULTIPLIER : 1;
-        obj.y += (state.scrollSpeed * speedMult) + obj.vy;
-        obj.x += obj.vx;
-        obj.rotation += obj.rotationSpeed;
-
-        // Collector Physics
-        if (state.isCollecting && [ObjectType.FUEL, ObjectType.REPAIR, ObjectType.BOOST].includes(obj.type)) {
-           const dx = state.x - obj.x;
-           const dy = state.y - obj.y;
-           const dist = Math.hypot(dx, dy);
-           
-           if (dist < collConfig.radius) {
-              // Pull towards ship
-              const force = collConfig.pullSpeed;
-              const angle = Math.atan2(dy, dx);
-              obj.vx += Math.cos(angle) * force;
-              obj.vy += Math.sin(angle) * force;
-              
-              // Draw pull line
-              ctx.beginPath();
-              ctx.moveTo(state.x, state.y);
-              ctx.lineTo(obj.x, obj.y);
-              ctx.strokeStyle = `rgba(0, 255, 255, ${0.3 * (1 - dist/collConfig.radius)})`;
-              ctx.lineWidth = 2;
-              ctx.stroke();
-           }
-        }
-
-        // Check Bounds
-        if (obj.y > canvas.height + 300) {
-           if (obj.type === ObjectType.PLANET) {
-             state.multiplier += 0.5;
-           }
-           state.objects.splice(i, 1);
-           continue;
-        }
-
-        const dx = state.x - obj.x;
-        const dy = state.y - obj.y;
-        const dist = Math.hypot(dx, dy);
-        
-        // Planet Proximity
-        if (obj.type === ObjectType.PLANET) {
-           if (dist < obj.radius + 200 && obj.y > 0 && obj.y < canvas.height) {
-             state.planetNear = obj.label || "Unknown Planet";
-           }
-        } else {
-          // Ship Collision
-          if (dist < obj.radius + 15) {
-            if (obj.type === ObjectType.ASTEROID) {
-              state.hull -= COLLISION_DAMAGE;
-              state.fuel -= COLLISION_FUEL_LEAK;
-              state.vx += (dx / dist) * 10;
-              state.vy += (dy / dist) * 10;
-              state.screenShake = 15; // Heavy shake for ship hit
-              createExplosionParticles(obj.x, obj.y, obj.color, 15);
-              playSound('explode');
-            } else if (obj.type === ObjectType.FUEL) {
-              state.fuel = Math.min(FUEL_MAX, state.fuel + (obj.value || 0));
-            } else if (obj.type === ObjectType.REPAIR) {
-              state.hull = Math.min(HULL_MAX, state.hull + (obj.value || 0));
-            } else if (obj.type === ObjectType.BOOST) {
-              state.boostCharge = Math.min(100, state.boostCharge + (obj.value || 0));
-            }
-            state.objects.splice(i, 1);
-            continue;
-          }
-
-          // Projectile Collision
-          if (obj.type === ObjectType.ASTEROID) {
-            let hit = false;
-            for (let pIndex = state.projectiles.length - 1; pIndex >= 0; pIndex--) {
-              const p = state.projectiles[pIndex];
-              const pDist = Math.hypot(p.x - obj.x, p.y - obj.y);
-              if (pDist < obj.radius + 5) {
-                // Trigger dying sequence instead of immediate destruction
-                state.projectiles.splice(pIndex, 1);
-                obj.isDying = true;
-                obj.flashTime = 3; // Flash for 3 frames (~50ms)
-                playSound('hit');
-                hit = true;
-                break; // One projectile hits one asteroid
-              }
-            }
-            if (hit) continue;
-          }
-        }
-      }
-
-      // 4. Rendering
+      // 4. Rendering & Mining Logic
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       ctx.save();
@@ -595,82 +522,251 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         ctx.translate(shakeX, shakeY);
       }
 
+      // MINING LOGIC
+      let isHittingAsteroid = false;
+      let rayTargetX = mouseRef.current.x;
+      let rayTargetY = mouseRef.current.y;
+
+      // If Mining
+      if (mouseRef.current.isDown && !state.planetNear && state.boostCharge > MINING_COST) {
+          state.boostCharge -= MINING_COST;
+          if (Math.random() > 0.5) playSound('mine'); // Throttle sound
+          
+          // Check collision with mouse point for asteroids
+          const mx = mouseRef.current.x;
+          const my = mouseRef.current.y;
+
+          for(const obj of state.objects) {
+              if (obj.type === ObjectType.ASTEROID && !obj.isDying) {
+                  const dx = mx - obj.x;
+                  const dy = my - obj.y;
+                  if (Math.hypot(dx, dy) < obj.radius + 20) {
+                      // Valid Mine Hit
+                      isHittingAsteroid = true;
+                      rayTargetX = obj.x;
+                      rayTargetY = obj.y;
+                      
+                      obj.miningProgress = (obj.miningProgress || 0) + miningSettings.miningSpeed;
+                      
+                      // Shake Effect
+                      obj.x += (Math.random() - 0.5) * 4;
+                      obj.y += (Math.random() - 0.5) * 4;
+                      
+                      // Mining Complete
+                      if (obj.miningProgress >= 1) {
+                          obj.isDying = true;
+                          obj.flashTime = 3;
+                          spawnMinerals(obj.x, obj.y);
+                      }
+                      break; // Mine one at a time
+                  }
+              }
+          }
+      }
+
       // Draw Objects
-      state.objects.forEach(obj => {
+      for (let i = state.objects.length - 1; i >= 0; i--) {
+        const obj = state.objects[i];
+
+        // Handle Dying State
+        if (obj.isDying) {
+            obj.flashTime = (obj.flashTime || 0) - 1;
+            obj.y += state.scrollSpeed;
+
+            if (obj.flashTime <= 0) {
+                createExplosionParticles(obj.x, obj.y, obj.color, Math.floor(obj.radius * 0.8));
+                const shakeAmount = obj.radius > 35 ? 20 : 5;
+                state.screenShake = Math.max(state.screenShake, shakeAmount);
+                playSound('explode');
+                state.objects.splice(i, 1);
+            } else {
+                // Render Flash
+                ctx.save();
+                ctx.translate(obj.x, obj.y);
+                ctx.shadowColor = '#FFFFFF';
+                ctx.shadowBlur = 30;
+                ctx.fillStyle = '#FFFFFF';
+                ctx.beginPath();
+                ctx.arc(0, 0, obj.radius * 1.1, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            continue;
+        }
+
+        // Physics
+        const speedMult = state.isBoosting ? BOOST_MULTIPLIER : 1;
+        obj.y += (state.scrollSpeed * speedMult) + obj.vy;
+        obj.x += obj.vx;
+        obj.rotation += obj.rotationSpeed;
+
+        // Collector
+        if (state.isCollecting && [ObjectType.FUEL, ObjectType.REPAIR, ObjectType.BOOST, ObjectType.MINERAL].includes(obj.type)) {
+           const dx = state.x - obj.x;
+           const dy = state.y - obj.y;
+           const dist = Math.hypot(dx, dy);
+           
+           if (dist < collConfig.radius) {
+              const force = collConfig.pullSpeed * 2; // Stronger pull for minerals
+              const angle = Math.atan2(dy, dx);
+              obj.vx += Math.cos(angle) * force;
+              obj.vy += Math.sin(angle) * force;
+              
+              ctx.beginPath();
+              ctx.moveTo(state.x, state.y);
+              ctx.lineTo(obj.x, obj.y);
+              ctx.strokeStyle = `rgba(0, 255, 255, ${0.3 * (1 - dist/collConfig.radius)})`;
+              ctx.lineWidth = 2;
+              ctx.stroke();
+           }
+        }
+
+        // Boundary check
+        if (obj.y > canvas.height + 300) {
+           if (obj.type === ObjectType.PLANET) state.multiplier += 0.5;
+           state.objects.splice(i, 1);
+           continue;
+        }
+
+        const dx = state.x - obj.x;
+        const dy = state.y - obj.y;
+        const dist = Math.hypot(dx, dy);
+
+        // Render
         ctx.save();
         ctx.translate(obj.x, obj.y);
         ctx.rotate(obj.rotation);
-        
-        if (obj.isDying) {
-           // Render Flash State
-           ctx.shadowColor = '#FFFFFF';
-           ctx.shadowBlur = 30;
-           ctx.fillStyle = '#FFFFFF';
-           ctx.beginPath();
-           
-           // Rough shape matches asteroid logic below
-           for(let i=0; i<6; i++) {
-             const angle = (i/6) * Math.PI * 2;
-             const r = obj.radius * 1.2; // Expand slightly
-             ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
-           }
-           ctx.closePath();
-           ctx.fill();
-        } else if (obj.type === ObjectType.PLANET) {
-          const grad = ctx.createRadialGradient(0, 0, obj.radius * 0.8, 0, 0, obj.radius * 1.2);
-          grad.addColorStop(0, obj.color);
-          grad.addColorStop(1, 'transparent');
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          ctx.arc(0, 0, obj.radius * 1.2, 0, Math.PI * 2);
-          ctx.fill();
 
-          ctx.fillStyle = '#000';
-          ctx.beginPath();
-          ctx.arc(0, 0, obj.radius, 0, Math.PI * 2);
-          ctx.fill();
-          
-          ctx.strokeStyle = obj.color;
-          ctx.lineWidth = 5;
-          ctx.stroke();
-          
-          ctx.fillStyle = '#FFF';
-          ctx.font = '20px Orbitron';
-          ctx.textAlign = 'center';
-          ctx.fillText(obj.label || '', 0, obj.radius + 40);
-        } else {
-          ctx.fillStyle = obj.color;
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = obj.color;
-          
-          ctx.beginPath();
-          if (obj.type === ObjectType.ASTEROID) {
-             for(let i=0; i<6; i++) {
-               const angle = (i/6) * Math.PI * 2;
-               const r = obj.radius * (0.8 + Math.random() * 0.4); // Note: this jitters every frame, making it look unstable which is cool for asteroids
-               ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+        if (obj.type === ObjectType.ASTEROID) {
+             // Asteroid Rendering
+             ctx.fillStyle = obj.color;
+             ctx.shadowBlur = 10;
+             ctx.shadowColor = '#000';
+             
+             // Heating Effect Overlay
+             if (obj.miningProgress && obj.miningProgress > 0) {
+                 // Base asteroid
+                 ctx.beginPath();
+                 for(let k=0; k<6; k++) {
+                    const angle = (k/6) * Math.PI * 2;
+                    const r = obj.radius * (0.9 + Math.random() * 0.2); 
+                    ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+                 }
+                 ctx.fill();
+
+                 // Heat Overlay
+                 const heatColor = `rgba(255, ${Math.floor(100 * (1 - obj.miningProgress))}, 0, ${obj.miningProgress})`;
+                 ctx.fillStyle = heatColor;
+                 ctx.shadowColor = '#FF4500';
+                 ctx.shadowBlur = 20 * obj.miningProgress;
+                 ctx.beginPath();
+                 for(let k=0; k<6; k++) {
+                    const angle = (k/6) * Math.PI * 2;
+                    const r = obj.radius * (0.95 + Math.random() * 0.2); 
+                    ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+                 }
+                 ctx.fill();
+
+                 // White hot core when near destruction
+                 if (obj.miningProgress > 0.8) {
+                     ctx.fillStyle = `rgba(255, 255, 255, ${(obj.miningProgress - 0.8) * 5})`;
+                     ctx.fill();
+                 }
+
+             } else {
+                 ctx.beginPath();
+                 for(let k=0; k<6; k++) {
+                   const angle = (k/6) * Math.PI * 2;
+                   const r = obj.radius * (0.8 + Math.random() * 0.4); 
+                   ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+                 }
+                 ctx.fill();
              }
-          } else {
+
+        } else if (obj.type === ObjectType.PLANET) {
+             // Planet Rendering (Same as before)
+             const grad = ctx.createRadialGradient(0, 0, obj.radius * 0.8, 0, 0, obj.radius * 1.2);
+             grad.addColorStop(0, obj.color);
+             grad.addColorStop(1, 'transparent');
+             ctx.fillStyle = grad;
+             ctx.beginPath();
+             ctx.arc(0, 0, obj.radius * 1.2, 0, Math.PI * 2);
+             ctx.fill();
+
+             ctx.fillStyle = '#000';
+             ctx.beginPath();
              ctx.arc(0, 0, obj.radius, 0, Math.PI * 2);
-          }
-          ctx.closePath();
-          ctx.fill();
+             ctx.fill();
+             
+             ctx.strokeStyle = obj.color;
+             ctx.lineWidth = 5;
+             ctx.stroke();
+             
+             ctx.fillStyle = '#FFF';
+             ctx.font = '20px Orbitron';
+             ctx.textAlign = 'center';
+             ctx.fillText(obj.label || '', 0, obj.radius + 40);
+        } else if (obj.type === ObjectType.MINERAL) {
+            ctx.fillStyle = '#FFD700';
+            ctx.shadowColor = '#FFA500';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.moveTo(0, -obj.radius);
+            ctx.lineTo(obj.radius, 0);
+            ctx.lineTo(0, obj.radius);
+            ctx.lineTo(-obj.radius, 0);
+            ctx.fill();
+        } else {
+             // Pickups
+             ctx.fillStyle = obj.color;
+             ctx.shadowBlur = 10;
+             ctx.shadowColor = obj.color;
+             ctx.beginPath();
+             ctx.arc(0, 0, obj.radius, 0, Math.PI * 2);
+             ctx.fill();
         }
         ctx.restore();
-      });
-      
-      // Draw Projectiles
-      state.projectiles.forEach(p => {
-        ctx.save();
-        ctx.shadowBlur = 5;
-        ctx.shadowColor = '#0FF';
-        ctx.fillStyle = '#0FF';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      });
-      
+
+        // Collisions
+        if (obj.type === ObjectType.PLANET) {
+           if (dist < obj.radius + 200 && obj.y > 0 && obj.y < canvas.height) {
+             state.planetNear = obj.label || "Unknown Planet";
+           }
+        } else {
+           if (dist < obj.radius + 15) {
+             if (obj.type === ObjectType.ASTEROID) {
+               state.hull -= COLLISION_DAMAGE;
+               state.fuel -= COLLISION_FUEL_LEAK;
+               state.vx += (dx / dist) * 10;
+               state.vy += (dy / dist) * 10;
+               state.screenShake = 15;
+               createExplosionParticles(obj.x, obj.y, obj.color, 15);
+               playSound('explode');
+             } else if (obj.type === ObjectType.FUEL) {
+               state.fuel = Math.min(FUEL_MAX, state.fuel + (obj.value || 0));
+               playSound('collect');
+             } else if (obj.type === ObjectType.REPAIR) {
+               state.hull = Math.min(HULL_MAX, state.hull + (obj.value || 0));
+               playSound('collect');
+             } else if (obj.type === ObjectType.BOOST) {
+               state.boostCharge = Math.min(100, state.boostCharge + (obj.value || 0));
+               playSound('collect');
+             } else if (obj.type === ObjectType.MINERAL) {
+                // Mineral Collection
+                state.zombies += 1; 
+                state.boostCharge = Math.min(100, state.boostCharge + MINERAL_ENERGY);
+                playSound('collect');
+             }
+             state.objects.splice(i, 1);
+           }
+        }
+      } // End Object Loop
+
+      // Draw Mining Ray
+      if (mouseRef.current.isDown && !state.planetNear && state.boostCharge > 0) {
+         drawLightning(ctx, state.x, state.y - 10, rayTargetX, rayTargetY);
+      }
+
       // Draw Particles
       state.particles.forEach(p => {
         ctx.save();
@@ -686,7 +782,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
       ctx.save();
       ctx.translate(state.x, state.y);
       
-      // Collector Shield Effect
+      // Collector Shield
       if (state.isCollecting) {
         ctx.beginPath();
         ctx.arc(0, 0, 40, 0, Math.PI * 2);
@@ -694,12 +790,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         ctx.fill();
         ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + Math.random() * 0.3})`;
         ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        // Pulse
-        ctx.beginPath();
-        ctx.arc(0, 0, 45 + Math.random() * 5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0, 255, 255, 0.2)';
         ctx.stroke();
       }
 
@@ -721,6 +811,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
       ctx.closePath();
       ctx.fill();
       
+      // Cockpit
       ctx.fillStyle = '#111';
       ctx.beginPath();
       ctx.arc(0, -5, 5, 0, Math.PI * 2);
@@ -775,6 +866,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', handleMouseMove);
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
   }, [saveData, difficulty, onGameOver, onSuccess]);
