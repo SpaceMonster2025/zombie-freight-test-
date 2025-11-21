@@ -51,6 +51,8 @@ export interface GameObject {
   color: string;
   value?: number; // Amount of fuel/repair/multiplier
   label?: string; // For planets
+  isDying?: boolean;
+  flashTime?: number;
 }
 
 export interface Particle {

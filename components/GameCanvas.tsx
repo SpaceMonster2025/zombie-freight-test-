@@ -143,25 +143,44 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     }
   };
 
-  const createExplosionParticles = (x: number, y: number, color: string, amount: number) => {
-    const colors = ['#FFA500', '#FF4500', '#888888', '#FFFFFF', color];
+  const createExplosionParticles = (x: number, y: number, baseColor: string, amount: number) => {
     for (let i = 0; i < amount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 5 + 2;
+      const speed = Math.random() * 8 + 2;
+      
+      // Distinct colors: White core, Orange/Red fire, Grey debris
+      const type = Math.random();
+      let pColor = baseColor;
+      let pSize = Math.random() * 4 + 1;
+      let pLife = 1.0;
+      let decay = 0.02 + Math.random() * 0.03;
+
+      if (type > 0.7) {
+         pColor = '#FFFFFF'; // Flash/Spark
+         pSize = 3;
+         pLife = 0.6;
+         decay = 0.05;
+      } else if (type > 0.3) {
+         pColor = Math.random() > 0.5 ? '#FF4500' : '#FFA500'; // Fire
+         pSize = Math.random() * 8 + 4;
+      } else {
+         pColor = '#666666'; // Debris
+      }
+
       gameState.current.particles.push({
         x,
         y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        size: Math.random() * 4 + 1,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        life: 1.0,
-        decay: 0.02 + Math.random() * 0.04
+        size: pSize,
+        color: pColor,
+        life: pLife,
+        decay
       });
     }
   };
 
-  const playSound = (type: 'land' | 'shoot' | 'explode') => {
+  const playSound = (type: 'land' | 'shoot' | 'explode' | 'hit') => {
     try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioContextClass) return;
@@ -173,15 +192,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
           osc.type = 'sine';
           osc.frequency.setValueAtTime(440, audioCtx.currentTime);
           osc.frequency.exponentialRampToValueAtTime(55, audioCtx.currentTime + 2);
-          const lfo = audioCtx.createOscillator();
-          lfo.type = 'square';
-          lfo.frequency.value = 10;
-          const lfoGain = audioCtx.createGain();
-          lfoGain.gain.value = 500;
-          lfo.connect(lfoGain);
-          lfoGain.connect(osc.frequency);
-          lfo.start();
-          lfo.stop(audioCtx.currentTime + 2.1);
           gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
           gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 2);
           osc.stop(audioCtx.currentTime + 2.1);
@@ -195,10 +205,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         } else if (type === 'explode') {
           osc.type = 'sawtooth';
           osc.frequency.setValueAtTime(100, audioCtx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-          gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-          osc.stop(audioCtx.currentTime + 0.3);
+          osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+          gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+          osc.stop(audioCtx.currentTime + 0.4);
+        } else if (type === 'hit') {
+           // High pitch ping for hit registration
+           osc.type = 'triangle';
+           osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+           osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.05);
+           gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+           gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+           osc.stop(audioCtx.currentTime + 0.05);
         }
 
         osc.connect(gain);
@@ -371,9 +389,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
          });
          state.lastShotTime = now;
          playSound('shoot');
-         
-         // Recoil
-         state.vy += 0.5;
+         state.vy += 0.5; // Recoil
       }
 
       // Apply Friction
@@ -425,17 +441,51 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         if (state.screenShake < 0.5) state.screenShake = 0;
       }
 
-      // Object Physics & Collision
-      state.objects.forEach((obj, index) => {
+      // Object Physics & Collision - Iterate backwards for safe removal
+      for (let i = state.objects.length - 1; i >= 0; i--) {
+        const obj = state.objects[i];
+
+        // Handle Dying State (Flash before destruction)
+        if (obj.isDying) {
+            obj.flashTime = (obj.flashTime || 0) - 1;
+            
+            // Keep moving slightly while dying
+            obj.y += state.scrollSpeed * (state.isBoosting ? BOOST_MULTIPLIER : 1);
+
+            if (obj.flashTime <= 0) {
+                // Final Destruction
+                createExplosionParticles(obj.x, obj.y, obj.color, Math.floor(obj.radius * 0.8));
+                
+                // Screen Shake based on asteroid size
+                const shakeAmount = obj.radius > 35 ? 20 : 5;
+                state.screenShake = Math.max(state.screenShake, shakeAmount);
+                
+                playSound('explode');
+                state.objects.splice(i, 1);
+            }
+            continue; // Skip further collision checks for dying objects
+        }
+
+        // Normal Physics
         const speedMult = state.isBoosting ? BOOST_MULTIPLIER : 1;
         obj.y += (state.scrollSpeed * speedMult) + obj.vy;
         obj.x += obj.vx;
         obj.rotation += obj.rotationSpeed;
 
+        // Check Bounds
+        if (obj.y > canvas.height + 300) {
+           if (obj.type === ObjectType.PLANET) {
+             state.multiplier += 0.5;
+           }
+           state.objects.splice(i, 1);
+           continue;
+        }
+
         const dx = state.x - obj.x;
         const dy = state.y - obj.y;
         const dist = Math.hypot(dx, dy);
         
+        // Planet Proximity
         if (obj.type === ObjectType.PLANET) {
            if (dist < obj.radius + 200 && obj.y > 0 && obj.y < canvas.height) {
              state.planetNear = obj.label || "Unknown Planet";
@@ -450,6 +500,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
               state.vy += (dy / dist) * 10;
               state.screenShake = 15; // Heavy shake for ship hit
               createExplosionParticles(obj.x, obj.y, obj.color, 15);
+              playSound('explode');
             } else if (obj.type === ObjectType.FUEL) {
               state.fuel = Math.min(FUEL_MAX, state.fuel + (obj.value || 0));
             } else if (obj.type === ObjectType.REPAIR) {
@@ -457,37 +508,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
             } else if (obj.type === ObjectType.BOOST) {
               state.boostCharge = Math.min(100, state.boostCharge + (obj.value || 0));
             }
-            state.objects.splice(index, 1);
-            return; // Object gone
+            state.objects.splice(i, 1);
+            continue;
           }
 
           // Projectile Collision
           if (obj.type === ObjectType.ASTEROID) {
+            let hit = false;
             for (let pIndex = state.projectiles.length - 1; pIndex >= 0; pIndex--) {
               const p = state.projectiles[pIndex];
               const pDist = Math.hypot(p.x - obj.x, p.y - obj.y);
               if (pDist < obj.radius + 5) {
-                // Hit!
-                state.objects.splice(index, 1);
+                // Trigger dying sequence instead of immediate destruction
                 state.projectiles.splice(pIndex, 1);
-                
-                createExplosionParticles(obj.x, obj.y, obj.color, 12);
-                
-                state.screenShake = 5; // Light shake for shooting
-                playSound('explode');
-                return; 
+                obj.isDying = true;
+                obj.flashTime = 3; // Flash for 3 frames (~50ms)
+                playSound('hit');
+                hit = true;
+                break; // One projectile hits one asteroid
               }
             }
+            if (hit) continue;
           }
         }
-
-        if (obj.y > canvas.height + 300) {
-           if (obj.type === ObjectType.PLANET) {
-             state.multiplier += 0.5;
-           }
-           state.objects.splice(index, 1);
-        }
-      });
+      }
 
       // 4. Rendering
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -507,7 +551,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         ctx.translate(obj.x, obj.y);
         ctx.rotate(obj.rotation);
         
-        if (obj.type === ObjectType.PLANET) {
+        if (obj.isDying) {
+           // Render Flash State
+           ctx.shadowColor = '#FFFFFF';
+           ctx.shadowBlur = 30;
+           ctx.fillStyle = '#FFFFFF';
+           ctx.beginPath();
+           
+           // Rough shape matches asteroid logic below
+           for(let i=0; i<6; i++) {
+             const angle = (i/6) * Math.PI * 2;
+             const r = obj.radius * 1.2; // Expand slightly
+             ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+           }
+           ctx.closePath();
+           ctx.fill();
+        } else if (obj.type === ObjectType.PLANET) {
           const grad = ctx.createRadialGradient(0, 0, obj.radius * 0.8, 0, 0, obj.radius * 1.2);
           grad.addColorStop(0, obj.color);
           grad.addColorStop(1, 'transparent');
@@ -538,7 +597,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
           if (obj.type === ObjectType.ASTEROID) {
              for(let i=0; i<6; i++) {
                const angle = (i/6) * Math.PI * 2;
-               const r = obj.radius * (0.8 + Math.random() * 0.4);
+               const r = obj.radius * (0.8 + Math.random() * 0.4); // Note: this jitters every frame, making it look unstable which is cool for asteroids
                ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
              }
           } else {
