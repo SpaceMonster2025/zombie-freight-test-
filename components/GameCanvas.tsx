@@ -4,7 +4,7 @@ import {
   BOOST_MULTIPLIER, CLONING_RATES, COLLISION_DAMAGE, COLLISION_FUEL_LEAK, 
   FUEL_CONSUMPTION_BASE, FUEL_EFFICIENCY, FUEL_MAX, HULL_CAPACITIES, 
   HULL_MAX, PLANET_NAMES, SCROLL_SPEED_BASE, SCROLL_SPEED_MAX, SHIP_FRICTION, 
-  SHIP_THRUST, DIFFICULTY_CONFIG
+  SHIP_THRUST, DIFFICULTY_CONFIG, COLLECTOR_CONFIG
 } from '../constants';
 import { HUD } from './HUD';
 import { Starfield } from './Starfield';
@@ -39,6 +39,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const mouseRef = useRef<boolean>(false);
+  const rightMouseRef = useRef<boolean>(false);
   
   // Game State Refs (Mutable for performance)
   const gameState = useRef({
@@ -64,7 +65,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     isLanding: false,
     landingProgress: 0,
     screenShake: 0,
-    lastShotTime: 0
+    lastShotTime: 0,
+    // Collector State
+    collectorUses: COLLECTOR_CONFIG[difficulty].uses,
+    collectorMaxTime: COLLECTOR_CONFIG[difficulty].duration,
+    collectorTimeLeft: COLLECTOR_CONFIG[difficulty].duration,
+    isCollecting: false
   });
 
   // Input State
@@ -74,7 +80,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
   const [hudState, setHudState] = useState({
     fuel: 100, hull: 100, zombies: 10, 
     maxZombies: 100, credits: 0, multiplier: 1,
-    boostCharge: 100, nearestPlanet: null as string | null
+    boostCharge: 100, nearestPlanet: null as string | null,
+    collectorUses: 0, collectorActive: false, collectorProgress: 1
   });
 
   // Helper: Spawn Objects
@@ -263,14 +270,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     const handleKeyUp = (e: KeyboardEvent) => keys.current.delete(e.key.toLowerCase());
     
     const handleMouseDown = (e: MouseEvent) => {
-      mouseRef.current = true;
-      if (e.button === 0 && gameState.current.planetNear) {
-        landOnPlanet();
+      if (e.button === 0) { // Left Click
+        mouseRef.current = true;
+        if (gameState.current.planetNear) landOnPlanet();
+      }
+      if (e.button === 2) { // Right Click
+        rightMouseRef.current = true;
       }
     };
     
-    const handleMouseUp = () => {
-      mouseRef.current = false;
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) mouseRef.current = false;
+      if (e.button === 2) rightMouseRef.current = false;
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -282,6 +293,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     const update = () => {
       const state = gameState.current;
       const now = Date.now();
+      const collConfig = COLLECTOR_CONFIG[difficulty];
       
       // LANDING SEQUENCE
       if (state.isLanding) {
@@ -373,6 +385,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         state.boostCharge = Math.min(100, state.boostCharge + 0.05);
         const targetSpeed = SCROLL_SPEED_BASE + (state.distance / 10000);
         state.scrollSpeed = state.scrollSpeed * 0.98 + targetSpeed * 0.02;
+      }
+
+      // Collector Ability Logic
+      state.isCollecting = rightMouseRef.current && state.collectorUses > 0;
+      if (state.isCollecting) {
+        state.collectorTimeLeft--;
+        if (state.collectorTimeLeft <= 0) {
+          state.collectorUses--;
+          if (state.collectorUses > 0) {
+            state.collectorTimeLeft = state.collectorMaxTime;
+          } else {
+            state.collectorTimeLeft = 0;
+            state.isCollecting = false;
+          }
+        }
       }
 
       // Shooting: Space or Mouse Click (if not landing)
@@ -471,6 +498,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         obj.y += (state.scrollSpeed * speedMult) + obj.vy;
         obj.x += obj.vx;
         obj.rotation += obj.rotationSpeed;
+
+        // Collector Physics
+        if (state.isCollecting && [ObjectType.FUEL, ObjectType.REPAIR, ObjectType.BOOST].includes(obj.type)) {
+           const dx = state.x - obj.x;
+           const dy = state.y - obj.y;
+           const dist = Math.hypot(dx, dy);
+           
+           if (dist < collConfig.radius) {
+              // Pull towards ship
+              const force = collConfig.pullSpeed;
+              const angle = Math.atan2(dy, dx);
+              obj.vx += Math.cos(angle) * force;
+              obj.vy += Math.sin(angle) * force;
+              
+              // Draw pull line
+              ctx.beginPath();
+              ctx.moveTo(state.x, state.y);
+              ctx.lineTo(obj.x, obj.y);
+              ctx.strokeStyle = `rgba(0, 255, 255, ${0.3 * (1 - dist/collConfig.radius)})`;
+              ctx.lineWidth = 2;
+              ctx.stroke();
+           }
+        }
 
         // Check Bounds
         if (obj.y > canvas.height + 300) {
@@ -636,6 +686,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
       ctx.save();
       ctx.translate(state.x, state.y);
       
+      // Collector Shield Effect
+      if (state.isCollecting) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 40, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 255, 255, ${0.1 + Math.random() * 0.1})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + Math.random() * 0.3})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Pulse
+        ctx.beginPath();
+        ctx.arc(0, 0, 45 + Math.random() * 5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0, 255, 255, 0.2)';
+        ctx.stroke();
+      }
+
       if (keys.current.has('w') || keys.current.has('arrowup') || state.isBoosting) {
         ctx.beginPath();
         ctx.moveTo(-5, 15);
@@ -678,7 +745,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
         credits: Math.floor(state.zombies * state.multiplier),
         multiplier: state.multiplier,
         boostCharge: state.boostCharge,
-        nearestPlanet: state.planetNear
+        nearestPlanet: state.planetNear,
+        collectorUses: state.collectorUses,
+        collectorActive: state.isCollecting,
+        collectorProgress: state.collectorTimeLeft / state.collectorMaxTime
       });
 
       if (state.hull <= 0) {
@@ -712,7 +782,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
   return (
     <div className="relative w-full h-full">
       <Starfield speedMultiplier={gameState.current?.isBoosting ? 2 : 0.5} />
-      <canvas ref={canvasRef} className="block cursor-crosshair" />
+      <canvas 
+        ref={canvasRef} 
+        className="block cursor-crosshair"
+        onContextMenu={(e) => e.preventDefault()}
+      />
       <HUD {...hudState} />
     </div>
   );

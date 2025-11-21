@@ -1,5 +1,5 @@
 import React from 'react';
-import { Battery, Heart, Skull, Zap, AlertTriangle, Rocket } from 'lucide-react';
+import { Battery, Heart, Skull, Zap, AlertTriangle, Magnet } from 'lucide-react';
 
 interface HUDProps {
   fuel: number;
@@ -10,10 +10,14 @@ interface HUDProps {
   multiplier: number;
   boostCharge: number;
   nearestPlanet: string | null;
+  collectorUses: number;
+  collectorActive: boolean;
+  collectorProgress: number;
 }
 
 export const HUD: React.FC<HUDProps> = ({ 
-  fuel, hull, zombies, maxZombies, credits, multiplier, boostCharge, nearestPlanet 
+  fuel, hull, zombies, maxZombies, credits, multiplier, boostCharge, nearestPlanet,
+  collectorUses, collectorActive, collectorProgress
 }) => {
   const zombiePercentage = (zombies / maxZombies) * 100;
   
@@ -66,13 +70,25 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
 
-        {/* Center: Alerts */}
+        {/* Center: Alerts & Abilities */}
         <div className="flex flex-col items-center gap-2">
            <div className="text-xl font-bold tracking-widest text-white/80 bg-black/40 px-4 py-1 rounded">
              MULT: x{multiplier.toFixed(1)}
            </div>
+
+           {/* Collector HUD */}
+           <div className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-all ${collectorActive ? 'bg-blue-900/50 border-blue-400 text-blue-200 scale-110' : 'bg-black/40 border-gray-700 text-gray-400'}`}>
+             <Magnet className={`w-4 h-4 ${collectorActive ? 'animate-bounce' : ''}`} />
+             <span className="text-xs font-mono font-bold">COLLECTOR x{collectorUses}</span>
+             {collectorActive && (
+               <div className="w-12 h-1.5 bg-gray-800 rounded-full ml-1 overflow-hidden">
+                 <div className="h-full bg-blue-400" style={{ width: `${collectorProgress * 100}%` }}></div>
+               </div>
+             )}
+           </div>
+
            {nearestPlanet && (
-             <div className="animate-bounce bg-blue-900/80 border border-blue-400 text-blue-100 px-4 py-2 rounded-lg flex flex-col items-center">
+             <div className="animate-bounce bg-blue-900/80 border border-blue-400 text-blue-100 px-4 py-2 rounded-lg flex flex-col items-center mt-2">
                <span className="text-sm font-bold">APPROACHING {nearestPlanet}</span>
                <span className="text-xs flex gap-4 mt-1">
                  <span>[Y] LAND</span>
@@ -120,7 +136,7 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Bottom Controls Hint */}
       <div className="text-center opacity-50 text-xs pb-2 font-mono">
-        WASD: THRUST | SHIFT: BOOST | AVOID DEBRIS | COLLECT PARTICLES
+        WASD: THRUST | SHIFT: BOOST | RMB: COLLECTOR ({collectorUses}) | SPACE/LMB: SHOOT
       </div>
     </div>
   );

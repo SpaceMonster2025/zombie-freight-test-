@@ -19,6 +19,14 @@ export const DIFFICULTY_CONFIG = {
   [Difficulty.INSANE]: { maxShots: 1, label: "Psychopath", color: "text-red-600", desc: "Max Shots: 1" }
 };
 
+// Collector Ability Config
+export const COLLECTOR_CONFIG = {
+  [Difficulty.EASY]: { uses: 5, radius: 450, duration: 300, pullSpeed: 0.8 },    // 5 uses, 5s each, 450px range
+  [Difficulty.MEDIUM]: { uses: 3, radius: 350, duration: 240, pullSpeed: 0.6 },  // 3 uses, 4s each, 350px range
+  [Difficulty.HARD]: { uses: 2, radius: 250, duration: 180, pullSpeed: 0.5 },    // 2 uses, 3s each, 250px range
+  [Difficulty.INSANE]: { uses: 1, radius: 180, duration: 120, pullSpeed: 0.4 }   // 1 use, 2s each, 180px range
+};
+
 // Upgrade Config
 export const UPGRADE_COSTS = [0, 500, 1500, 4000, 10000];
 export const CLONING_RATES = [0.2, 0.5, 1.0, 1.8, 3.0]; // Zombies per tick
