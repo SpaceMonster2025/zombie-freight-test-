@@ -1,10 +1,12 @@
 import React from 'react';
-import { SavedData } from '../types';
-import { CLONING_RATES, FUEL_EFFICIENCY, HULL_CAPACITIES, UPGRADE_COSTS } from '../constants';
-import { Zap, Shield, Activity, Trophy, Play } from 'lucide-react';
+import { SavedData, Difficulty } from '../types';
+import { CLONING_RATES, FUEL_EFFICIENCY, HULL_CAPACITIES, UPGRADE_COSTS, DIFFICULTY_CONFIG } from '../constants';
+import { Zap, Shield, Activity, Trophy, Play, Crosshair } from 'lucide-react';
 
 interface MainMenuProps {
   savedData: SavedData;
+  difficulty: Difficulty;
+  setDifficulty: (d: Difficulty) => void;
   onStart: () => void;
   onUpgrade: (type: 'cloning' | 'hull' | 'fuel') => void;
 }
@@ -52,7 +54,7 @@ const UpgradeCard: React.FC<{
   </div>
 );
 
-export const MainMenu: React.FC<MainMenuProps> = ({ savedData, onStart, onUpgrade }) => {
+export const MainMenu: React.FC<MainMenuProps> = ({ savedData, difficulty, setDifficulty, onStart, onUpgrade }) => {
   const upgrades = savedData.upgrades;
 
   return (
@@ -89,6 +91,32 @@ export const MainMenu: React.FC<MainMenuProps> = ({ savedData, onStart, onUpgrad
                    </div>
                  </div>
                </div>
+             </div>
+
+             {/* Difficulty Selector */}
+             <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+               <div className="flex items-center justify-between mb-3">
+                 <h2 className="text-gray-400 text-xs uppercase tracking-widest">Mission Difficulty</h2>
+                 <Crosshair className="w-4 h-4 text-gray-500" />
+               </div>
+               <div className="grid grid-cols-2 gap-2 mb-2">
+                 {(Object.values(Difficulty) as Difficulty[]).map((d) => (
+                   <button
+                    key={d}
+                    onClick={() => setDifficulty(d)}
+                    className={`px-2 py-2 text-xs font-bold rounded border transition-all ${
+                      difficulty === d 
+                        ? `${DIFFICULTY_CONFIG[d].color} border-current bg-white/10` 
+                        : 'text-gray-500 border-gray-800 hover:border-gray-600'
+                    }`}
+                   >
+                     {DIFFICULTY_CONFIG[d].label}
+                   </button>
+                 ))}
+               </div>
+               <p className={`text-center text-xs font-mono ${DIFFICULTY_CONFIG[difficulty].color}`}>
+                 {DIFFICULTY_CONFIG[difficulty].desc}
+               </p>
              </div>
 
              <button 

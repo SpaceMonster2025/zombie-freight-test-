@@ -1,16 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { GameObject, GameScreen, ObjectType, SavedData } from '../types';
+import { GameObject, GameScreen, ObjectType, SavedData, Difficulty } from '../types';
 import { 
   BOOST_MULTIPLIER, CLONING_RATES, COLLISION_DAMAGE, COLLISION_FUEL_LEAK, 
   FUEL_CONSUMPTION_BASE, FUEL_EFFICIENCY, FUEL_MAX, HULL_CAPACITIES, 
   HULL_MAX, PLANET_NAMES, SCROLL_SPEED_BASE, SCROLL_SPEED_MAX, SHIP_FRICTION, 
-  SHIP_THRUST 
+  SHIP_THRUST, DIFFICULTY_CONFIG
 } from '../constants';
 import { HUD } from './HUD';
 import { Starfield } from './Starfield';
 
 interface GameCanvasProps {
   saveData: SavedData;
+  difficulty: Difficulty;
   onGameOver: (stats: { zombies: number; credits: number; reason: string }) => void;
   onSuccess: (stats: { zombies: number; credits: number; multiplier: number }) => void;
 }
@@ -23,17 +24,18 @@ interface Projectile {
   vy: number;
 }
 
-interface Explosion {
-  id: number;
+interface DebrisParticle {
   x: number;
   y: number;
-  radius: number;
-  maxRadius: number;
-  alpha: number;
+  vx: number;
+  vy: number;
+  size: number;
   color: string;
+  life: number;
+  decay: number;
 }
 
-export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, onSuccess }) => {
+export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, onGameOver, onSuccess }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const mouseRef = useRef<boolean>(false);
@@ -52,7 +54,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
     fuelEff: FUEL_EFFICIENCY[saveData.upgrades.fuel - 1],
     objects: [] as GameObject[],
     projectiles: [] as Projectile[],
-    explosions: [] as Explosion[],
+    particles: [] as DebrisParticle[],
     scrollSpeed: SCROLL_SPEED_BASE,
     distance: 0,
     multiplier: 1.0,
@@ -137,6 +139,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
         rotationSpeed: (Math.random() - 0.5) * 0.1,
         color,
         value
+      });
+    }
+  };
+
+  const createExplosionParticles = (x: number, y: number, color: string, amount: number) => {
+    const colors = ['#FFA500', '#FF4500', '#888888', '#FFFFFF', color];
+    for (let i = 0; i < amount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 5 + 2;
+      gameState.current.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: Math.random() * 4 + 1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 1.0,
+        decay: 0.02 + Math.random() * 0.04
       });
     }
   };
@@ -338,8 +358,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
       }
 
       // Shooting: Space or Mouse Click (if not landing)
+      const maxShots = DIFFICULTY_CONFIG[difficulty].maxShots;
       const isShooting = keys.current.has(' ') || (mouseRef.current && !state.planetNear);
-      if (isShooting && now - state.lastShotTime > 250 && state.projectiles.length < 3) {
+      
+      if (isShooting && now - state.lastShotTime > 250 && state.projectiles.length < maxShots) {
          state.projectiles.push({
            id: now,
            x: state.x,
@@ -388,12 +410,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
         }
       }
 
-      // Update Explosions
-      for (let i = state.explosions.length - 1; i >= 0; i--) {
-        const ex = state.explosions[i];
-        ex.radius += 1.5;
-        ex.alpha -= 0.05;
-        if (ex.alpha <= 0) state.explosions.splice(i, 1);
+      // Update Particles
+      for (let i = state.particles.length - 1; i >= 0; i--) {
+        const p = state.particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= p.decay;
+        if (p.life <= 0) state.particles.splice(i, 1);
       }
       
       // Screen Shake Decay
@@ -426,6 +449,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
               state.vx += (dx / dist) * 10;
               state.vy += (dy / dist) * 10;
               state.screenShake = 15; // Heavy shake for ship hit
+              createExplosionParticles(obj.x, obj.y, obj.color, 15);
             } else if (obj.type === ObjectType.FUEL) {
               state.fuel = Math.min(FUEL_MAX, state.fuel + (obj.value || 0));
             } else if (obj.type === ObjectType.REPAIR) {
@@ -447,16 +471,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
                 state.objects.splice(index, 1);
                 state.projectiles.splice(pIndex, 1);
                 
-                // Explosion
-                state.explosions.push({
-                  id: Math.random(),
-                  x: obj.x,
-                  y: obj.y,
-                  radius: 10,
-                  maxRadius: 40,
-                  alpha: 1,
-                  color: '#FA0'
-                });
+                createExplosionParticles(obj.x, obj.y, obj.color, 12);
                 
                 state.screenShake = 5; // Light shake for shooting
                 playSound('explode');
@@ -547,18 +562,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
         ctx.restore();
       });
       
-      // Draw Explosions
-      state.explosions.forEach(ex => {
+      // Draw Particles
+      state.particles.forEach(p => {
         ctx.save();
-        ctx.globalAlpha = ex.alpha;
-        ctx.fillStyle = ex.color;
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
-        ctx.fill();
-        // Inner core
-        ctx.fillStyle = '#FFF';
-        ctx.beginPath();
-        ctx.arc(ex.x, ex.y, ex.radius * 0.5, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       });
@@ -638,7 +648,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, onGameOver, on
       window.removeEventListener('mouseup', handleMouseUp);
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [saveData, onGameOver, onSuccess]);
+  }, [saveData, difficulty, onGameOver, onSuccess]);
 
   return (
     <div className="relative w-full h-full">

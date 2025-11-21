@@ -1,4 +1,4 @@
-import { SavedData } from './types';
+import { SavedData, Difficulty } from './types';
 
 export const INITIAL_SAVE_DATA: SavedData = {
   credits: 0,
@@ -9,6 +9,14 @@ export const INITIAL_SAVE_DATA: SavedData = {
     hull: 1,
     fuel: 1
   }
+};
+
+// Difficulty Config
+export const DIFFICULTY_CONFIG = {
+  [Difficulty.EASY]: { maxShots: 5, label: "Recruit", color: "text-green-400", desc: "Max Shots: 5" },
+  [Difficulty.MEDIUM]: { maxShots: 3, label: "Veteran", color: "text-blue-400", desc: "Max Shots: 3" },
+  [Difficulty.HARD]: { maxShots: 2, label: "Hardcore", color: "text-orange-400", desc: "Max Shots: 2" },
+  [Difficulty.INSANE]: { maxShots: 1, label: "Psychopath", color: "text-red-600", desc: "Max Shots: 1" }
 };
 
 // Upgrade Config

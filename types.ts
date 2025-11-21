@@ -5,6 +5,13 @@ export enum GameScreen {
   SUCCESS = 'SUCCESS'
 }
 
+export enum Difficulty {
+  EASY = 'EASY',
+  MEDIUM = 'MEDIUM',
+  HARD = 'HARD',
+  INSANE = 'INSANE'
+}
+
 export interface SavedData {
   credits: number;
   highScoreZombies: number;

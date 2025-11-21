@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GameScreen, GameRunStats, SavedData } from './types';
+import { GameScreen, GameRunStats, SavedData, Difficulty } from './types';
 import { getSavedData, saveGameData } from './services/storageService';
 import { UPGRADE_COSTS } from './constants';
 import { MainMenu } from './components/MainMenu';
@@ -10,6 +10,7 @@ function App() {
   const [screen, setScreen] = useState<GameScreen>(GameScreen.MENU);
   const [savedData, setSavedData] = useState<SavedData>(getSavedData());
   const [lastRunStats, setLastRunStats] = useState<GameRunStats | null>(null);
+  const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.MEDIUM);
 
   // Persist data whenever it changes
   useEffect(() => {
@@ -72,6 +73,8 @@ function App() {
           <Starfield speedMultiplier={0.2} />
           <MainMenu 
             savedData={savedData} 
+            difficulty={difficulty}
+            setDifficulty={setDifficulty}
             onStart={handleStartGame} 
             onUpgrade={handleUpgrade}
           />
@@ -81,6 +84,7 @@ function App() {
       {screen === GameScreen.GAME && (
         <GameCanvas 
           saveData={savedData}
+          difficulty={difficulty}
           onGameOver={handleGameOver}
           onSuccess={handleSuccess}
         />
