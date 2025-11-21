@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Zombie Freight: Stellar Drift</title>
+    <title>Galaxy of Terror</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600&family=Bangers&family=Creepster&display=swap');
       
       body {
         background-color: #000;
@@ -17,6 +17,14 @@
       
       h1, h2, h3, .hud-font {
         font-family: 'Orbitron', sans-serif;
+      }
+
+      .font-comic {
+        font-family: 'Bangers', cursive;
+      }
+      
+      .font-horror {
+        font-family: 'Creepster', cursive;
       }
 
       .animate-pulse-fast {
@@ -34,6 +42,20 @@
         );
         background-size: 100% 4px;
         pointer-events: none;
+      }
+
+      /* Halftone Pattern */
+      .halftone {
+        background-image: radial-gradient(circle, #222 1px, transparent 1.5px);
+        background-size: 8px 8px;
+      }
+
+      .text-shadow-comic {
+        text-shadow: 3px 3px 0px #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+      }
+      
+      .text-shadow-retro {
+        text-shadow: 4px 4px 0px #000;
       }
     </style>
   <script type="importmap">
