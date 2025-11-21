@@ -35,6 +35,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
   const mouseRef = useRef<{x: number, y: number, isDown: boolean}>({ x: 0, y: 0, isDown: false });
   const rightMouseRef = useRef<boolean>(false);
   
+  // Audio Refs
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const miningAudioRef = useRef<{
+    osc: OscillatorNode | null;
+    gain: GainNode | null;
+    lfo: OscillatorNode | null;
+    lfoGain: GainNode | null;
+  }>({ osc: null, gain: null, lfo: null, lfoGain: null });
+
   // Game State Refs (Mutable for performance)
   const gameState = useRef({
     x: window.innerWidth / 2,
@@ -149,7 +158,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     
     for(let i=0; i<count; i++) {
        const angle = Math.random() * Math.PI * 2;
-       const speed = settings.mineralSpeed + (Math.random() * 0.5); 
+       const speed = settings.mineralSpeed + (Math.random() * 0.05); 
        
        gameState.current.objects.push({
         id: Math.random().toString(),
@@ -171,7 +180,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
   const createExplosionParticles = (x: number, y: number, baseColor: string, amount: number) => {
     for (let i = 0; i < amount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 8 + 2;
+      const speed = Math.random() * 3 + 2;
       
       const type = Math.random();
       let pColor = baseColor;
@@ -204,11 +213,93 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
     }
   };
 
-  const playSound = (type: 'land' | 'mine' | 'explode' | 'collect') => {
+  // Dynamic Mining Audio Manager
+  const manageMiningAudio = (isMining: boolean, progress: number) => {
+      // Init Audio Context lazily
+      if (!audioCtxRef.current) {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass) {
+              audioCtxRef.current = new AudioContextClass();
+          }
+      }
+      const ctx = audioCtxRef.current;
+      if (!ctx) return;
+
+      if (ctx.state === 'suspended') ctx.resume();
+
+      if (isMining) {
+          // Create Nodes if not existing
+          if (!miningAudioRef.current.osc) {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              const lfo = ctx.createOscillator();
+              const lfoGain = ctx.createGain();
+
+              // Main Oscillator - Sawtooth for harsh "beam" sound
+              osc.type = 'sawtooth';
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+
+              // LFO - Square wave for "crackling" modulation
+              lfo.type = 'square';
+              lfo.connect(lfoGain);
+              lfoGain.connect(osc.frequency);
+
+              osc.start();
+              lfo.start();
+
+              miningAudioRef.current = { osc, gain, lfo, lfoGain };
+          }
+
+          // Modulate Sound based on Heat (Progress)
+          const nodes = miningAudioRef.current;
+          const now = ctx.currentTime;
+
+          // 1. Pitch rises dramatically as it heats up (80Hz -> 900Hz)
+          const targetFreq = 80 + (progress * 820);
+          // 2. Crackle rate speeds up (30Hz -> 80Hz)
+          const targetLfoRate = 30 + (progress * 50);
+          // 3. Crackle intensity deepens (20 -> 200)
+          const targetLfoDepth = 20 + (progress * 180);
+
+          if (nodes.osc && nodes.lfo && nodes.lfoGain && nodes.gain) {
+              nodes.osc.frequency.setTargetAtTime(targetFreq, now, 0.1);
+              nodes.lfo.frequency.setTargetAtTime(targetLfoRate, now, 0.1);
+              nodes.lfoGain.gain.setTargetAtTime(targetLfoDepth, now, 0.1);
+              // Stabilize volume
+              nodes.gain.gain.setTargetAtTime(0.1, now, 0.1);
+          }
+
+      } else {
+          // Stop and cleanup if running
+          if (miningAudioRef.current.osc) {
+              const nodes = miningAudioRef.current;
+              const now = ctx.currentTime;
+              
+              // Quick fade out to avoid clicks
+              if (nodes.gain) nodes.gain.gain.setTargetAtTime(0, now, 0.05);
+              
+              // Stop slightly in future to allow fade
+              if (nodes.osc) nodes.osc.stop(now + 0.1);
+              if (nodes.lfo) nodes.lfo.stop(now + 0.1);
+              
+              // Reset ref
+              miningAudioRef.current = { osc: null, gain: null, lfo: null, lfoGain: null };
+          }
+      }
+  };
+
+  const playSound = (type: 'land' | 'explode' | 'collect') => {
     try {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContextClass) return;
-        const audioCtx = new AudioContextClass();
+        if (!audioCtxRef.current) {
+             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+             if (AudioContextClass) audioCtxRef.current = new AudioContextClass();
+        }
+        const audioCtx = audioCtxRef.current;
+        if (!audioCtx) return;
+        
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
 
@@ -219,13 +310,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
           gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
           gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 2);
           osc.stop(audioCtx.currentTime + 2.1);
-        } else if (type === 'mine') {
-          // Electric buzzing
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(100 + Math.random() * 50, audioCtx.currentTime);
-          gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-          gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
-          osc.stop(audioCtx.currentTime + 0.1);
         } else if (type === 'explode') {
           osc.type = 'sawtooth';
           osc.frequency.setValueAtTime(100, audioCtx.currentTime);
@@ -524,13 +608,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
 
       // MINING LOGIC
       let isHittingAsteroid = false;
+      let currentMiningProgress = 0;
       let rayTargetX = mouseRef.current.x;
       let rayTargetY = mouseRef.current.y;
 
       // If Mining
       if (mouseRef.current.isDown && !state.planetNear && state.boostCharge > MINING_COST) {
           state.boostCharge -= MINING_COST;
-          if (Math.random() > 0.5) playSound('mine'); // Throttle sound
           
           // Check collision with mouse point for asteroids
           const mx = mouseRef.current.x;
@@ -543,6 +627,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
                   if (Math.hypot(dx, dy) < obj.radius + 20) {
                       // Valid Mine Hit
                       isHittingAsteroid = true;
+                      currentMiningProgress = obj.miningProgress || 0;
                       rayTargetX = obj.x;
                       rayTargetY = obj.y;
                       
@@ -557,12 +642,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
                           obj.isDying = true;
                           obj.flashTime = 3;
                           spawnMinerals(obj.x, obj.y);
+                          isHittingAsteroid = false; // Stop sound on kill frame
                       }
                       break; // Mine one at a time
                   }
               }
           }
       }
+
+      // Update Dynamic Audio
+      manageMiningAudio(isHittingAsteroid, currentMiningProgress);
 
       // Draw Objects
       for (let i = state.objects.length - 1; i >= 0; i--) {
@@ -843,14 +932,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
       });
 
       if (state.hull <= 0) {
+        manageMiningAudio(false, 0);
         onGameOver({ zombies: Math.floor(state.zombies), credits: 0, reason: "CRITICAL HULL FAILURE" });
         return;
       }
       if (state.fuel <= 0) {
+        manageMiningAudio(false, 0);
         onGameOver({ zombies: Math.floor(state.zombies), credits: 0, reason: "OUT OF FUEL - DRIFTING ETERNALLY" });
         return;
       }
       if (state.zombies >= state.maxZombies) {
+        manageMiningAudio(false, 0);
         onGameOver({ zombies: Math.floor(state.zombies), credits: 0, reason: "CONTAINMENT BREACH - SHIP OVERRUN" });
         return;
       }
@@ -867,6 +959,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ saveData, difficulty, on
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('mousemove', handleMouseMove);
+      
+      // Audio Cleanup
+      if (miningAudioRef.current.osc) {
+         try { miningAudioRef.current.osc.stop(); } catch(e){}
+         try { miningAudioRef.current.lfo?.stop(); } catch(e){}
+      }
+      if (audioCtxRef.current) {
+          audioCtxRef.current.close();
+          audioCtxRef.current = null;
+      }
+
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
   }, [saveData, difficulty, onGameOver, onSuccess]);
